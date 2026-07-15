@@ -33,11 +33,24 @@ we just have to extract it:
 `learn/corpus/` is gitignored (refetchable, heavy); `knowledge/` is committed —
 it's the distilled asset.
 
+## 3. `sandbox/` — reproduce and *hear* the difference
+
+The feedback loop the DJ brain needs: render any Strudel code headless
+(`sandbox/render.mjs code.strudel out.wav [secs]` — taps the real audio graph,
+so the WAV is exactly what speakers would get) and measure it
+(`sandbox/analyze.py mine.wav ref.m4a --start-b 170 --dur-b 30` — BPM via
+onset autocorrelation, onset density, band energy profile, centroid, RMS).
+`knowledge/reproductions/` holds the compare reports; first one matched the
+studied track at **exactly 139.7 BPM with band profile within a few percent**,
+and the deltas correctly fingered the one piece of code the frames never
+showed.
+
 ## Status
 
 - [x] fetch pipeline proven (transcript + frames legible, code recoverable verbatim)
-- [ ] first lessons in `knowledge/lessons/`
-- [ ] `dj/` Strudel harness page
+- [x] first lessons in `knowledge/lessons/` (acid, trance, house, ...)
+- [x] `dj/` deck page (`window.dj` API; `dj/probe.mjs` passes headless)
+- [x] `sandbox/` render + analyze + first faithful reproduction
 - [ ] DJ brain loop (LLM writes/revises the pattern on a schedule)
 - [ ] the event
 

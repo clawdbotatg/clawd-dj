@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>clawd-dj sandbox renderer</title>
+<body>sandbox renderer — driven by render.mjs</body>
+
+<script>
+// Tap installed BEFORE strudel loads: any node that connects to the real
+// speakers also connects into our recorder, so we capture exactly what
+// would be heard — superdough wires per-orbit chains straight to
+// ctx.destination, and this catches all of them.
+(() => {
+  const origConnect = AudioNode.prototype.connect;
+  window.__chunks = [];
+  window.__recording = false;
+  window.__tapInput = null;
+
+  function ensureTap(ctx) {
+    if (window.__tapInput) return;
+    const input = ctx.createGain();
+    const proc = ctx.createScriptProcessor(4096, 2, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0; // the tap chain must reach destination to tick, but silently
+    proc.onaudioprocess = (e) => {
+      if (!window.__recording) return;
+      const L = e.inputBuffer.getChannelData(0);
+      const R = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : L;
+      const mono = new Float32Array(L.length);
+      for (let i = 0; i < L.length; i++) mono[i] = (L[i] + R[i]) / 2;
+      window.__chunks.push(mono);
+    };
+    origConnect.call(input, proc);
+    origConnect.call(proc, mute);
+    origConnect.call(mute, ctx.destination);
+    window.__tapInput = input;
+    window.__sampleRate = ctx.sampleRate;
+  }
+
+  AudioNode.prototype.connect = function (dest, ...args) {
+    if (dest instanceof AudioDestinationNode && this.context instanceof AudioContext) {
+      ensureTap(this.context);
+      origConnect.call(this, window.__tapInput, ...args);
+    }
+    return origConnect.call(this, dest, ...args);
+  };
+})();
+</script>
+
+<script src="https://unpkg.com/@strudel/web@1.3.0"></script>
+<script>
+(() => {
+  let lastEval = { ok: true, msg: 'none' };
+  window.__replPromise = initStrudel({
+    prebake: () => samples('github:tidalcycles/dirt-samples'),
+    onEvalError: (err) => { lastEval = { ok: false, msg: String(err?.message || err) }; },
+    afterEval: () => { lastEval = { ok: true, msg: 'ok' }; },
+  });
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function toWav(chunks, sampleRate) {
+    const n = chunks.reduce((a, c) => a + c.length, 0);
+    const buf = new ArrayBuffer(44 + n * 2);
+    const v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    let o = 44;
+    for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) {
+      const s = Math.max(-1, Math.min(1, c[i]));
+      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  // render(code, secs, warmup) -> {ok, msg, sampleRate, frames, wavBase64}
+  window.__render = async (code, secs, warmup = 3) => {
+    const repl = await window.__replPromise;
+    window.__chunks = [];
+    await evaluate(code);
+    if (!lastEval.ok) { repl.stop(); return { ok: false, msg: lastEval.msg }; }
+    await sleep(warmup * 1000); // lazy sample buffers download on first trigger
+    window.__recording = true;
+    await sleep(secs * 1000);
+    window.__recording = false;
+    repl.stop();
+    const frames = window.__chunks.reduce((a, c) => a + c.length, 0);
+    return {
+      ok: true, msg: 'ok', sampleRate: window.__sampleRate, frames,
+      cps: repl.scheduler.cps,
+      wavBase64: toWav(window.__chunks, window.__sampleRate),
+    };
+  };
+})();
+</script>

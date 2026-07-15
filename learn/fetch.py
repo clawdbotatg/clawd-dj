@@ -8,6 +8,7 @@ Produces learn/corpus/<video-id>/
   captions.vtt     raw auto-captions (if available)
   transcript.txt   deduped plain-text transcript with [mm:ss] timestamps
   frames/tNNNN.png one frame every --interval seconds (default 8), near-dup frames dropped
+  audio.m4a        the video's audio track — the reference the sandbox compares against
 
 The corpus is what the study step reads: a vision-capable agent walks frames/ in
 order (code state over time) alongside transcript.txt (the DJ narrating why) and
@@ -91,6 +92,11 @@ def main():
         print(f"[{vid}] transcript: {len((out / 'transcript.txt').read_text().splitlines())} lines")
     else:
         print(f"[{vid}] no captions available")
+
+    if not (out / "audio.m4a").exists():
+        print(f"[{vid}] audio ...")
+        subprocess.run(["yt-dlp", url, "-f", "ba[ext=m4a]/ba", "-o", str(out / "audio.m4a")],
+                       check=True, capture_output=True)
 
     print(f"[{vid}] video ...")
     mp4 = out / "video.mp4"
