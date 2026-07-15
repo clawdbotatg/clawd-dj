@@ -52,7 +52,10 @@ After `initStrudel()` resolves, the whole API is on `globalThis`: `evaluate`,
    default banks (piano, VCSL, tidal-drum-machines, EmuSP12, uzu-drumkit,
    `.bank('tr909')`...) come from `strudel.b-cdn.net/*.json`; mirror the
    `samples()` calls from `website/src/repl/prebake.mjs` in the strudel repo
-   if lesson code references them.
+   if lesson code references them. Verified working:
+   `samples('https://strudel.b-cdn.net/tidal-drum-machines.json')` enables
+   `.bank("tr808")` etc. (`github:ritchse/tidal-drum-machines` does NOT work —
+   no strudel.json at the repo root.)
 5. **Autoplay**: `initStrudel` binds a one-time document `mousedown` to unlock
    audio; one gesture is enough forever (kiosk: launch Chromium with
    `--autoplay-policy=no-user-gesture-required`). Explicit: call `initAudio()`
