@@ -34,7 +34,10 @@
   let repl = null;
   let lastEval = { ok: true, msg: 'none' };
   const replPromise = initStrudel({
-    prebake: () => samples('github:tidalcycles/dirt-samples'),
+    prebake: () => Promise.all([
+      samples('github:tidalcycles/dirt-samples'),
+      samples('https://strudel.b-cdn.net/tidal-drum-machines.json'),
+    ]),
     onEvalError: (err) => { lastEval = { ok: false, msg: String(err?.message || err) }; },
     afterEval: () => { lastEval = { ok: true, msg: 'ok' }; },
   });
