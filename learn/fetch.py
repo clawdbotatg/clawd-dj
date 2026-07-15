@@ -83,11 +83,14 @@ def main():
     subprocess.run(["yt-dlp", url, "--write-auto-subs", "--write-subs", "--sub-langs", "en",
                     "--skip-download", "-o", str(out / "captions")],
                    check=True, capture_output=True)
-    vtts = sorted(out.glob("captions*.vtt"))
+    # NB: exclude captions.vtt itself — on a re-run the glob would match it and the
+    # rename+unlink below would delete the freshly renamed file.
+    vtts = sorted(p for p in out.glob("captions*.vtt") if p.name != "captions.vtt")
     if vtts:
-        vtts[0].rename(out / "captions.vtt")
+        vtts[0].replace(out / "captions.vtt")
         for extra in vtts[1:]:
             extra.unlink()
+    if (out / "captions.vtt").exists():
         (out / "transcript.txt").write_text(dedupe_vtt(out / "captions.vtt"))
         print(f"[{vid}] transcript: {len((out / 'transcript.txt').read_text().splitlines())} lines")
     else:
