@@ -53,6 +53,12 @@ Distilled from `knowledge/lessons/` (11 studied builds) + `knowledge/patterns.md
   track to its bones before bringing the new one in.
 - One-integer arrangement: arrays of pattern variants selected by a single
   `pick(PG, beat)` index — change `beat`, the whole track moves sections.
+- **The in-language crossfade (her 58-min set, one file):** both songs coexist
+  as named blocks (`SONGA_*`, `SONGB_*`), next song pre-written muted; to
+  transition, tear the old drums down line-by-line to a lone offbeat hat,
+  flip the new blocks on, morph shared blocks (rename/retune an arp across
+  songs). Change `setCps` only inside a beatless valley — never under drums.
+- Never dead air: the groove keeps looping while you rebuild or talk.
 
 ## Arrangement moves (how the humans run a set)
 
