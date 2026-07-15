@@ -47,6 +47,32 @@ frames**.
 - Indexes: `github.com/terryds/awesome-strudel`,
   `github.com/toplap/awesome-livecoding`, algorave.com, club.tidalcycles.org.
 
+## #algorave hashtag mining (2026-07-15, via `yt-dlp https://www.youtube.com/hashtag/algorave`)
+
+The hashtag page is a live discovery feed — re-mine it periodically. New finds
+beyond the census above:
+
+- **Aviara** — `vAPX6g2eHgA` Livecoding Hard Groove Techno in Strudel from
+  Scratch (16k views) — new creator, harder techno niche.
+- **Switch Angel DNB pair** — `aPsq5nqvhxg` Livecoding melodic DNB (152k) ·
+  `IhZeHfuDZoQ` Coding Drum and Bass like it's the year 3000.
+- **LearningTheWires AlgoRave vols** — `1-cPuOlbib8` Copying Daft Punk in
+  Strudel (imitating-a-known-artist is exactly the DJ-brain skill) ·
+  `Ho0kW_CT2Q8` BASS KING.
+- **DJ_Dave** — `LaKT3pli5EQ` GitHub Universe 2020 set · `W24pteoigXk` Hard
+  Refresh process (already in census).
+- **Context**: `h340aNznHnM` The Guardian "is algorave the future of dance
+  music?" (65k).
+
+## Instagram (DJ_Dave especially — user tip)
+
+DJ_Dave posts a lot of process content on Instagram. yt-dlp can fetch public
+reels but IG is auth-walled/flaky anonymously — the reliable path on this
+machine is the browser-automation skill (real logged-in Chrome profile via
+CDP) to enumerate reel URLs, then `yt-dlp --cookies-from-browser chrome <url>`
+into the same `learn/fetch.py` corpus shape. Not yet wired up; treat as the
+next learn-pipeline extension.
+
 ## Pipeline notes (verified)
 
 - All sampled videos have English **auto**-captions (no manual subs):
