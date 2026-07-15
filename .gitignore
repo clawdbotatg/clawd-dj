@@ -3,3 +3,4 @@ learn/corpus/
 node_modules/
 .env
 *.env
+learn/__pycache__/
