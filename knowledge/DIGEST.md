@@ -39,6 +39,21 @@ Distilled from `knowledge/lessons/` (11 studied builds) + `knowledge/patterns.md
   postgain pattern (`"[.75 2.5]*4"`-ish, dip on kick, boost between); an `energy`
   value feeding `.lpenv` on several synths at once.
 
+## Set-level craft (from DJ_Dave's 6-song GitHub Universe set + Cycles collab)
+
+- A set = pre-written songs performed by *mutation*: keep whole-track programs
+  ready, mix by muting/unmuting layers (`_$:`), swapping pattern variants
+  (kick → kick2 → kick3 as commented alternates), and riding one or two
+  master macros (a shared lpf "bus" value = her `cmaster`; an `energy` value
+  feeding several `.lpenv`s at once).
+- Hold ONE tempo across neighboring songs (her whole set ran 125) — tempo
+  changes only at hard-cut moments.
+- Two transition types, both legal: overlap-crossfade (new song's kick+bass in
+  while old melodics fade) and hard cut on a phrase boundary. Strip the old
+  track to its bones before bringing the new one in.
+- One-integer arrangement: arrays of pattern variants selected by a single
+  `pick(PG, beat)` index — change `beat`, the whole track moves sections.
+
 ## Arrangement moves (how the humans run a set)
 
 - Layer in one element at a time, ~8-16 cycles apart. Start: kick alone or kick+bass.
