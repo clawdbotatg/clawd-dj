@@ -45,6 +45,20 @@ studied track at **exactly 139.7 BPM with band profile within a few percent**,
 and the deltas correctly fingered the one piece of code the frames never
 showed.
 
+## 4. `practice/` — the venue
+
+`practice/server.py` serves the practice room on **:8940** (LAN): watch/listen
+while the AI rehearses reproductions against references, or hit **play a set**
+and it performs original music — every move composed by `claude -p` with the
+`knowledge/DIGEST.md` cheat sheet, auditioned in the sandbox before airing, and
+crossfaded between two Strudel decks in your browser. Runs as a launchd daemon
+(`com.clawd.dj-practice`, logs at `/tmp/clawd-dj-practice.log`):
+
+```
+launchctl load ~/Library/LaunchAgents/com.clawd.dj-practice.plist   # install/start
+launchctl list | grep clawd.dj                                      # status
+```
+
 ## Status
 
 - [x] fetch pipeline proven (transcript + frames legible, code recoverable verbatim)
