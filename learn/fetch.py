@@ -80,9 +80,10 @@ def main():
                     "%(.{id,title,channel,duration,upload_date,view_count})j"]).stdout.strip()
     (out / "meta.json").write_text(json.dumps({**json.loads(meta_raw), "url": url}, indent=2) + "\n")
 
+    # best-effort: some videos 429/geo-fail on the captions endpoint — frames+audio still matter
     subprocess.run(["yt-dlp", url, "--write-auto-subs", "--write-subs", "--sub-langs", "en",
                     "--skip-download", "-o", str(out / "captions")],
-                   check=True, capture_output=True)
+                   check=False, capture_output=True)
     # NB: exclude captions.vtt itself — on a re-run the glob would match it and the
     # rename+unlink below would delete the freshly renamed file.
     vtts = sorted(p for p in out.glob("captions*.vtt") if p.name != "captions.vtt")
