@@ -1,0 +1,209 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clawd-dj deck</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0d10; color: #d7dde4; font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+         display: grid; grid-template-columns: 1fr 340px; grid-template-rows: auto 1fr auto; height: 100vh; gap: 0; }
+  header { grid-column: 1 / -1; padding: 10px 14px; border-bottom: 1px solid #1d232b; display: flex; gap: 14px; align-items: baseline; }
+  header h1 { font-size: 15px; margin: 0; color: #7ee0a3; font-weight: 600; }
+  header .sub { color: #5b6675; font-size: 12px; }
+  #code { width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: #0b0d10; color: #d7dde4;
+          padding: 14px; font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  aside { border-left: 1px solid #1d232b; display: flex; flex-direction: column; min-height: 0; }
+  .panel { padding: 12px 14px; border-bottom: 1px solid #1d232b; }
+  .panel h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #5b6675; }
+  .stat { display: flex; justify-content: space-between; padding: 2px 0; }
+  .stat b { color: #7ee0a3; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat b.bad { color: #ff7a7a; }
+  #log { flex: 1; overflow-y: auto; padding: 10px 14px; font-size: 12px; color: #8b97a5; }
+  #log .err { color: #ff7a7a; }
+  #log .ok { color: #7ee0a3; }
+  footer { grid-column: 1 / -1; padding: 10px 14px; border-top: 1px solid #1d232b; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { background: #161b22; color: #d7dde4; border: 1px solid #2a333e; border-radius: 6px; padding: 7px 14px;
+           font: inherit; cursor: pointer; }
+  button:hover { border-color: #7ee0a3; }
+  button.primary { background: #123822; border-color: #2c6e45; color: #9ff0bd; }
+  select { background: #161b22; color: #d7dde4; border: 1px solid #2a333e; border-radius: 6px; padding: 7px 8px; font: inherit; }
+  #fade { accent-color: #7ee0a3; width: 130px; }
+  .spacer { flex: 1; }
+</style>
+
+<header>
+  <h1>clawd-dj deck</h1>
+  <span class="sub">@strudel/web 1.3.0 · the AI DJ's instrument · window.dj = {play, cut, fade, fader, silence, stop, state, log}</span>
+</header>
+
+<main><textarea id="code" spellcheck="false">// clawd-dj deck — write strudel here, or let the brain do it.
+// $:-labeled patterns keep the master fader (and future all() moves) working.
+setcps(120/60/4)
+
+$: s("bd*4").gain(.9)
+
+$: s("[~ hh]*4").gain(.5)
+
+$: n("0 3 5 7").scale("a1:minor").s("sawtooth")
+   .lpf(600).lpenv(3).lpq(8).decay(.12).sustain(0)
+</textarea></main>
+
+<aside>
+  <div class="panel">
+    <h2>state</h2>
+    <div class="stat"><span>status</span><b id="st-status">booting</b></div>
+    <div class="stat"><span>cycle</span><b id="st-cycle">–</b></div>
+    <div class="stat"><span>cps / bpm</span><b id="st-cps">–</b></div>
+    <div class="stat"><span>fader</span><b id="st-fader">1.00</b></div>
+    <div class="stat"><span>last eval</span><b id="st-eval">–</b></div>
+  </div>
+  <div id="log"></div>
+</aside>
+
+<footer>
+  <button class="primary" id="b-play">▶ play now</button>
+  <button id="b-cut">cut @ cycle</button>
+  <button id="b-fade">fade in</button>
+  <input type="range" id="fade" min="0" max="1" step="0.01" value="1" title="master fader">
+  <span class="spacer"></span>
+  <button id="b-silence">silence</button>
+  <button id="b-stop">■ stop clock</button>
+</footer>
+
+<script src="https://unpkg.com/@strudel/web@1.3.0"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  const logLines = [];
+  function log(msg, cls = '') {
+    const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}`;
+    logLines.push(line);
+    if (logLines.length > 500) logLines.shift();
+    const div = document.createElement('div');
+    if (cls) div.className = cls;
+    div.textContent = line;
+    logEl.appendChild(div);
+    while (logEl.childNodes.length > 500) logEl.removeChild(logEl.firstChild);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // master fader: every program gets an all()-gain stage driven by a ref() so
+  // plain JS can ride it with zero re-evaluations (see docs/STRUDEL-API.md).
+  window.__djGain = 1;
+  const FADER_STAGE = '\nall(x => x.gain(ref(() => window.__djGain)))';
+  // all() only sees $:/d1:-labeled patterns; appending it to an unlabeled
+  // program would silence it, so only attach where labels exist.
+  const isLabeled = (code) => /^\s*(\$\w*|d\d+)\s*:/m.test(code);
+
+  let repl = null;
+  let lastEval = { ok: true, msg: 'none yet' };
+
+  const replPromise = initStrudel({
+    prebake: () => samples('github:tidalcycles/dirt-samples'),
+    onEvalError: (err) => {
+      lastEval = { ok: false, msg: String(err?.message || err) };
+      log(`eval error: ${lastEval.msg}`, 'err');
+    },
+    afterEval: () => { lastEval = { ok: true, msg: 'ok' }; },
+  });
+  window.__replPromise = replPromise; // probe hook
+  replPromise.then((r) => {
+    repl = r;
+    log('strudel ready (dirt-samples prebaked)', 'ok');
+    $('st-status').textContent = 'idle';
+  });
+
+  async function doEval(code) {
+    const program = isLabeled(code) ? code + FADER_STAGE : code;
+    await evaluate(program);
+    if (lastEval.ok) log(`evaluated ${code.length} chars${isLabeled(code) ? ' (+fader)' : ' (unlabeled: no fader stage)'}`, 'ok');
+    return lastEval.ok;
+  }
+
+  function msToNextCycle() {
+    if (!repl?.scheduler?.started) return 0;
+    const now = repl.scheduler.now();
+    return ((Math.ceil(now) - now) / repl.scheduler.cps) * 1000;
+  }
+
+  function rideFader(target, ms) {
+    return new Promise((done) => {
+      const from = window.__djGain;
+      const t0 = performance.now();
+      (function step(t) {
+        const k = ms <= 0 ? 1 : Math.min(1, (t - t0) / ms);
+        window.__djGain = from + (target - from) * k;
+        if (k < 1) requestAnimationFrame(step); else done();
+      })(t0);
+    });
+  }
+
+  window.dj = {
+    // hard swap immediately (still beat-aligned by the scheduler itself)
+    async play(code) { await replPromise; return doEval(code); },
+
+    // swap exactly on the next cycle boundary — the classic "cut on the one"
+    async cut(code) {
+      await replPromise;
+      const wait = msToNextCycle();
+      log(`cut in ${Math.round(wait)}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+      return doEval(code);
+    },
+
+    // fade master out, cut to new code at the bottom, fade back up
+    async fade(code, secs = 8) {
+      await replPromise;
+      if (!isLabeled(code)) { log('fade: code has no $: labels, falling back to cut', 'err'); return this.cut(code); }
+      const half = (secs * 1000) / 2;
+      log(`fade transition ${secs}s`);
+      await rideFader(0, half);
+      const ok = await doEval(code);
+      await rideFader(1, half);
+      return ok;
+    },
+
+    fader(v, ms = 0) { return rideFader(Math.max(0, Math.min(1, v)), ms); },
+    async silence() { await replPromise; await evaluate('silence'); log('silence (clock running)'); },
+    async stop() { await replPromise; repl.stop(); log('scheduler stopped'); },
+
+    state() {
+      const s = repl?.scheduler;
+      return {
+        ready: !!repl,
+        started: !!s?.started,
+        cycle: s?.started ? s.now() : null,
+        cps: s?.cps ?? null,
+        fader: window.__djGain,
+        lastEval,
+        code: repl?.state?.code ?? null,
+      };
+    },
+    log: () => logLines.slice(),
+  };
+
+  // wire the human controls to the same API the brain uses
+  $('b-play').onclick = () => dj.play($('code').value);
+  $('b-cut').onclick = () => dj.cut($('code').value);
+  $('b-fade').onclick = () => dj.fade($('code').value, 8);
+  $('b-silence').onclick = () => dj.silence();
+  $('b-stop').onclick = () => { dj.stop(); };
+  $('fade').oninput = (e) => { window.__djGain = +e.target.value; };
+
+  // state readout
+  setInterval(() => {
+    const s = window.dj.state();
+    $('st-status').textContent = !s.ready ? 'booting' : s.started ? 'playing' : 'idle';
+    $('st-cycle').textContent = s.cycle == null ? '–' : s.cycle.toFixed(2);
+    $('st-cps').textContent = s.cps == null ? '–' : `${s.cps.toFixed(3)} / ${(s.cps * 4 * 60).toFixed(0)}`;
+    $('st-fader').textContent = s.fader.toFixed(2);
+    const ev = $('st-eval');
+    ev.textContent = s.lastEval.ok ? s.lastEval.msg : 'ERROR';
+    ev.className = s.lastEval.ok ? '' : 'bad';
+    $('fade').value = s.fader;
+  }, 250);
+
+  log('deck loaded — click anywhere once to unlock audio, then ▶');
+})();
+</script>
