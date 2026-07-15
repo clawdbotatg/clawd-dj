@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>deck</title>
+<body style="margin:0;background:#0b0d10">
+<script>
+// One DJ deck. The parent page (index.html) embeds two of these and
+// crossfades between them. A master GainNode is injected under the entire
+// strudel audio graph (AudioNode.connect patch, installed before strudel
+// loads) so ANY evaluated code — labeled or not — can be ridden with
+// sample-accurate ramps.
+(() => {
+  const origConnect = AudioNode.prototype.connect;
+  window.__master = null;
+  function ensureMaster(ctx) {
+    if (window.__master) return;
+    const g = ctx.createGain();
+    g.gain.value = 0; // decks come up silent; the parent fades them in
+    origConnect.call(g, ctx.destination);
+    window.__master = g;
+    window.__ctx = ctx;
+  }
+  AudioNode.prototype.connect = function (dest, ...args) {
+    if (dest instanceof AudioDestinationNode && this.context instanceof AudioContext) {
+      ensureMaster(this.context);
+      return origConnect.call(this, window.__master, ...args);
+    }
+    return origConnect.call(this, dest, ...args);
+  };
+})();
+</script>
+<script src="https://unpkg.com/@strudel/web@1.3.0"></script>
+<script>
+(() => {
+  let repl = null;
+  let lastEval = { ok: true, msg: 'none' };
+  const replPromise = initStrudel({
+    prebake: () => samples('github:tidalcycles/dirt-samples'),
+    onEvalError: (err) => { lastEval = { ok: false, msg: String(err?.message || err) }; },
+    afterEval: () => { lastEval = { ok: true, msg: 'ok' }; },
+  });
+  replPromise.then((r) => { repl = r; });
+
+  window.deck = {
+    ready: () => replPromise.then(() => true),
+    async play(code) {
+      await replPromise;
+      await evaluate(code);
+      return { ...lastEval };
+    },
+    // equal-power leg: paired decks fading opposite directions keep total power flat
+    fadeTo(target, ms) {
+      const m = window.__master;
+      if (!m) return;
+      const now = window.__ctx.currentTime;
+      const from = m.gain.value;
+      const N = 33;
+      const curve = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const k = i / (N - 1);
+        curve[i] = Math.sqrt(Math.max(0, from * from + (target * target - from * from) * k));
+      }
+      m.gain.cancelScheduledValues(now);
+      try { m.gain.setValueCurveAtTime(curve, now, Math.max(ms, 20) / 1000); }
+      catch { m.gain.value = target; }
+    },
+    gain: () => window.__master ? window.__master.gain.value : 0,
+    stop() { if (repl) repl.stop(); },
+    state: () => ({ started: !!repl?.scheduler?.started, eval: lastEval }),
+  };
+})();
+</script>

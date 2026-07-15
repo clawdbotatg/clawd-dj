@@ -43,7 +43,7 @@ def broadcast(kind, **data):
         HISTORY.append(line)
         for q in CLIENTS:
             q.append(line)
-    print(f"[{evt['t']}] {kind}: {data.get('msg', '')[:100]}")
+    print(f"[{evt['t']}] {kind}: {data.get('msg', '')[:100]}", flush=True)
 
 
 # ---------- practice loop ----------
@@ -180,10 +180,74 @@ def practice_session(code_path, ref, ref_start, ref_dur, max_iters):
                   code=best[0], score=best[1])
 
 
+# ---------- session runner (one at a time, startable over HTTP) ----------
+SESSION_BUSY = threading.Lock()
+
+
+def start_session(code_path, ref, ref_start, ref_dur, iters):
+    if not SESSION_BUSY.acquire(blocking=False):
+        return False
+
+    def go():
+        try:
+            practice_session(code_path, ref, ref_start, ref_dur, iters)
+        except Exception as e:  # a crashed session must not wedge the room
+            broadcast("error", msg=f"session crashed: {e}")
+        finally:
+            SESSION_BUSY.release()
+
+    threading.Thread(target=go, daemon=True).start()
+    return True
+
+
+def catalog():
+    repros = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "sandbox/repro").glob("*.strudel"))
+    refs = []
+    for m in sorted((ROOT / "learn/corpus").glob("*/meta.json")):
+        if not (m.parent / "audio.m4a").exists():
+            continue
+        meta = json.loads(m.read_text())
+        refs.append({"path": str((m.parent / "audio.m4a").relative_to(ROOT)),
+                     "title": meta.get("title", m.parent.name),
+                     "duration": meta.get("duration")})
+    return {"repros": repros, "refs": refs}
+
+
 # ---------- HTTP ----------
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def _json(self, obj, status=200):
+        body = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("cache-control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path != "/session":
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            req = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))))
+            code = (ROOT / req["code"]).resolve()
+            ref = (ROOT / req["ref"]).resolve()
+            if ROOT not in code.parents or ROOT not in ref.parents:
+                raise ValueError("path outside project")
+            if not code.exists() or not ref.exists():
+                raise ValueError("no such file")
+            args = (code, ref, float(req.get("start", 0)), float(req.get("dur", 30)),
+                    max(1, min(int(req.get("iters", 6)), 20)))
+        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            self._json({"error": str(e)}, 400)
+            return
+        if start_session(*args):
+            self._json({"ok": True})
+        else:
+            self._json({"error": "a session is already running"}, 409)
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -193,6 +257,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("cache-control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/player.html":
+            body = (HERE / "player.html").read_bytes()
+            self.send_response(200)
+            self.send_header("content-type", "text/html; charset=utf-8")
+            self.send_header("cache-control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/catalog":
+            self._json(catalog())
         elif self.path == "/events":
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -232,20 +305,15 @@ def lan_ip():
 
 
 def main():
-    args = sys.argv[1:]
-    if args:
-        code_path, ref, ref_start, ref_dur = args[0], args[1], float(args[2]), float(args[3])
-        iters = int(args[4]) if len(args) > 4 else 6
-    else:
-        code_path = ROOT / "sandbox/repro/aviara-hard-groove.strudel"
-        ref = ROOT / "learn/corpus/vAPX6g2eHgA/audio.m4a"
-        ref_start, ref_dur, iters = 555, 30, 6
-
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print(f"practice room: http://{lan_ip()}:{PORT}/")
-    practice_session(code_path, ref, ref_start, ref_dur, iters)
-    print("session complete; server stays up for replay — ctrl-c to quit")
+    print(f"practice room: http://{lan_ip()}:{PORT}/", flush=True)
+    args = sys.argv[1:]
+    if args:
+        start_session(Path(args[0]), Path(args[1]), float(args[2]), float(args[3]),
+                      int(args[4]) if len(args) > 4 else 6)
+    else:
+        broadcast("session", msg="room open — pick a track and reference above and start a session")
     while True:
         time.sleep(60)
 
