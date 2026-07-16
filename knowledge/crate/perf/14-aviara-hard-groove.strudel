@@ -1,0 +1,9 @@
+// hard groove (after Aviara) | genres: hard,techno,groove | bpm: 150 | layers: subkick mainkick bass hats boogie
+setCps(150/60/4)
+samples('github:tidalcycles/dirt-samples')
+samples('https://strudel.b-cdn.net/tidal-drum-machines.json')
+$subkick: s("bd:3!4").bank("tr808").shape(.6).sustain(.8).hpf(80).postgain(1)
+$mainkick: s("<[sbd!3 [sbd sbd]] [sbd!2 [sbd sbd] sbd]>").lpf(742)
+$bass: note("e1(5,8)").sound("supersaw").sustain(0.3).release(0.1).shape(0.3).lpf(perlin.range(200, 1000).slow(4)).lpq(8.8).lpenv(sine.range(2,7).slow(16)).room(.1).jux(rev).postgain(1)
+$hats: s("white!8").decay(.07).lpf(2000).delay(.2).sometimesBy(".3", x=>x.s("oh | hh")).velocity(perlin.range(.5, 1.7))
+$boogie: s("hh:1 * 8, oh:4 * 4").decay(.05).delay(.2).speed(perlin.range(1, 2).slow(8)).velocity(perlin.range(.5, 1.5)).postgain(1).lpf(sine.range(800,4000).slow(12))

@@ -194,34 +194,10 @@ VALIDATE_SECS = 6       # quick audition render per candidate
 # The song-craft script: how the studied artists actually work — open sparse,
 # add ONE layer at a time, let the full groove ride, break it down, drop it,
 # then tear down into the next palette. (directive, hold_seconds_after_airing)
-LAYER = ("Unmute the NEXT layer from your plan (remove its `_` prefix). Every other "
-         "line stays BYTE-IDENTICAL.")
 RIDE = ("The record rides. Make ONE subtle performance tweak in the spirit of the "
         "record — nudge a filter, vary one pattern slightly, swap one drum variant. "
-        "Everything else stays byte-identical. Do NOT add or remove layers.")
-SONG_SCRIPT = [
-    ("open", "Restructure the record into the 808-set performance form: one `$name:`-"
-             "labeled line per layer, each layer's chain VERBATIM from the record "
-             "(hoist any const/let definitions and setcps/samples() calls to the top, "
-             "unchanged; a stack() becomes one labeled line per member). Then mute "
-             "every layer EXCEPT the foundation (kick or core groove) by prefixing "
-             "`_` (`_$name:`). The whole record must be present in the program, "
-             "mostly muted. Only the foundation plays.", 35),
-    ("layer", LAYER, 40),
-    ("layer", LAYER, 40),
-    ("layer", LAYER, 45),
-    ("layer", "Unmute EVERYTHING that remains — the full record now plays.", 55),
-    ("ride", RIDE, 100),
-    ("breakdown", "Breakdown: mute the kick/foundation (`_$name:`), let the melodic "
-                  "layers breathe, and add a riser line (`$riser: s(\"pulse\").seg(16)"
-                  ".dec(.1).fm(time).fmh(time).gain(.4)`). Other lines byte-identical.", 40),
-    ("drop", "THE DROP: unmute the kick, delete the riser line, everything at full "
-             "energy — open a filter wider than the record's resting state.", 100),
-    ("ride", RIDE, 80),
-    ("teardown", "Transition out: mute all melodic layers — leave a lean drum skeleton "
-                 "(kick + one hat, or a lone offbeat hat). Keep it groovy; never dead "
-                 "air. The next move opens a different record over this skeleton.", 25),
-]
+        "Everything else stays byte-identical. Do NOT add or remove layers, and do "
+        "NOT unmute any _$-muted line.")
 
 
 def render_only(code, tag):
@@ -263,14 +239,26 @@ def ask_brain(prompt, timeout=240):
     return r.stdout.strip(), None
 
 
-CRATE = ROOT / "knowledge/crate"
+PERF = ROOT / "knowledge/crate/perf"
+RISER_LINE = ('$riser: s("pulse*16").dec(.08).gain(saw.slow(8).range(.15,.5))'
+              '.hpf(saw.slow(8).range(300,3000)).orbit(6)')
 
 
-def load_crate():
-    idx = json.loads((CRATE / "index.json").read_text())["records"]
-    for r in idx:
-        r["code"] = (CRATE / r["file"]).read_text()
-    return idx
+def load_perf_records():
+    """Performance-form records: header `// title | genres: a,b | bpm: N | layers: l1 l2`,
+    body has one $name: line per layer (verified against the original by render)."""
+    recs = []
+    for f in sorted(PERF.glob("*.strudel")):
+        text = f.read_text()
+        m = re.match(r"//\s*(.+?)\s*\|\s*genres:\s*([\w,\- ]+)\s*\|\s*bpm:\s*(\d+)\s*\|\s*layers:\s*(.+)",
+                     text.splitlines()[0])
+        if not m:
+            continue
+        recs.append({"file": f.name, "title": m.group(1),
+                     "genres": [g.strip() for g in m.group(2).split(",")],
+                     "bpm": int(m.group(3)), "layers": m.group(4).split(),
+                     "code": text})
+    return recs
 
 
 def pick_record(records, genre, played):
@@ -283,20 +271,20 @@ def pick_record(records, genre, played):
     return random.choice(pool)
 
 
-def brain_record_plan(record):
-    out, err = ask_brain(f"""You are a livecoding DJ about to perform this record live in Strudel:
-
-RECORD: "{record['title']}" (~{record['bpm']} bpm)
-```
-{record['code']}
-```
-
-Write a PERFORMANCE PLAN, max 8 lines of plain text: name each distinct layer of
-the record by its musical role (foundation kick/drums, bass, hats, chords, melody,
-texture...) with a short identifying code snippet, in the ORDER you will bring
-them in (foundation first). No code changes yet. Reply with only the plan.""",
-                         timeout=300)
-    return (out[:1500], None) if out else (None, err)
+def set_layers(code, active, riser=False):
+    """The whole record stays in the program; exactly `active` layers are unmuted.
+    Deterministic string surgery on verified code — the brain can't touch the floor."""
+    out = []
+    for line in code.splitlines():
+        m = re.match(r"_?\$(\w+):", line)
+        if m:
+            bare = line[1:] if line.startswith("_") else line
+            out.append(bare if m.group(1) in active else "_" + bare)
+        else:
+            out.append(line)
+    if riser:
+        out.append(RISER_LINE)
+    return "\n".join(out)
 
 
 def brain_craft_move(genre, record, plan, directive, code, feedback, recent):
@@ -353,79 +341,63 @@ def set_session(genre, minutes):
     t0 = time.time()
     code, move_n, song_n = None, 0, 0
     recent, played = [], []
-    prev_metrics = None
-    records = load_crate()
-    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. Performing from "
-                             f"the record crate ({len(records)} records): build each "
-                             "record layer by layer, ride it, break it, drop it, then "
-                             "the next record. The AI is on the decks.")
+    records = load_perf_records()
+    if not records:
+        broadcast("error", msg="no performance records in knowledge/crate/perf/")
+        return
+    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. Performing "
+                             f"verified records from the crate ({len(records)} in the bag): "
+                             "layer-by-layer builds, rides, breakdowns, drops. "
+                             "The AI is on the decks.")
     while time.time() - t0 < total and not STOP.is_set():
         song_n += 1
-        record = pick_record(records, genre, played)
-        played.append(record["file"])
-        broadcast("think", msg=f"song {song_n}: pulling \"{record['title']}\" from the crate...")
-        plan = err = None
-        for _ in range(2):  # a slow/failed brain call shouldn't end the night
-            plan, err = brain_record_plan(record)
-            if plan:
-                break
-            broadcast("think", msg=f"performance plan attempt failed ({err}), retrying...")
-        if plan is None:
-            broadcast("error", msg=f"performance plan failed twice: {err}")
-            break
-        broadcast("session", msg=f"🎼 song {song_n}: \"{record['title']}\" — performance plan:\n{plan}")
-        for kind, directive, hold in SONG_SCRIPT:
+        rec = pick_record(records, genre, played)
+        played.append(rec["file"])
+        L = rec["layers"]
+        broadcast("session", msg=f"🎼 song {song_n}: \"{rec['title']}\" (~{rec['bpm']}bpm) — "
+                                 f"layers: {', '.join(L)}")
+        # deterministic performance script: (kind, active_layers, riser, mc_line, hold)
+        script = []
+        for i in range(1, len(L) + 1):
+            kind = "open" if i == 1 else ("full" if i == len(L) else "layer")
+            mc = {"open": f'pulling up "{rec["title"]}" — just the {L[0]}, let it breathe',
+                  "layer": f"bringing in the {L[i-1]}",
+                  "full": f"the {L[i-1]} completes it — full record, wall to wall"}[kind]
+            script.append((kind, L[:i], False, mc, 30 + i * 4))
+        script += [
+            ("ride", None, False, None, 85),
+            ("breakdown", L[1:], True, f"the {L[0]} drops out — riser winding up, hold on", 40),
+            ("drop", L, False, f"THE DROP — {L[0]} slams back, everything wide open", 90),
+            ("ride", None, False, None, 70),
+            ("teardown", L[:2], False, "stripping to the bones — next record loading", 22),
+        ]
+        for kind, active, riser, mc, hold in script:
             if time.time() - t0 >= total or STOP.is_set():
                 break
-            # not enough time left for a full craft arc? jump straight to teardown
-            if kind == "open" and total - (time.time() - t0) < 150 and code:
-                break
             move_n += 1
-            broadcast("think", msg=f"move {move_n} ({kind}): composing...", iteration=move_n)
-            feedback, candidate = "", None
-            for attempt in range(3):
-                new_code, mc, err = brain_craft_move(genre, record, plan, directive,
-                                                     code, feedback, recent)
-                if new_code is None:
-                    broadcast("error", msg=f"move {move_n}: {err}", iteration=move_n)
-                    break
-                metrics, verr = render_only(new_code, f"set{move_n}")
-                if verr:
-                    feedback = f"\nYour previous attempt FAILED validation: {verr}. Fix it."
-                    broadcast("think", msg=f"move {move_n}: failed audition "
-                                           f"({verr[:80]}), retrying...", iteration=move_n)
-                    continue
-                if metrics.get("rms_db", -99) < -35:
-                    feedback = ("\nYour previous attempt rendered near-silence "
-                                f"({metrics.get('rms_db')}dB). Check $: labels and gains.")
-                    broadcast("think", msg=f"move {move_n}: silent, retrying...",
-                              iteration=move_n)
-                    continue
-                if kind in ("open", "layer", "breakdown", "drop", "teardown") and \
-                        band_change(metrics, prev_metrics) < 0.02:
-                    feedback = ("\nYour previous attempt made NO audible difference to "
-                                "the mix. Make the directive's change actually count.")
-                    broadcast("think", msg=f"move {move_n}: inaudible change, retrying...",
-                              iteration=move_n)
-                    continue
-                candidate = (new_code, mc, metrics)
-                break
-            if candidate is None:
-                if code is None:
-                    broadcast("error", msg="couldn't open the set; aborting")
-                    return
-                broadcast("think", msg=f"move {move_n}: keeping the groove as-is",
+            if kind == "ride":
+                # the one brain move: a subtle audited performance tweak on verified code
+                broadcast("think", msg=f"move {move_n} (ride): feeling the groove...",
                           iteration=move_n)
+                new_code, bmc, err = brain_craft_move(genre, rec, "", RIDE, code, "", recent)
+                if new_code:
+                    metrics, verr = render_only(new_code, f"set{move_n}")
+                    if not verr and metrics.get("rms_db", -99) > -35:
+                        code = new_code
+                        recent.append(f"[ride] {bmc}")
+                        broadcast("adjust", msg=f"🎧 {bmc}", iteration=move_n,
+                                  code=code, mode="inplace")
+                        STOP.wait(hold)
+                        continue
+                broadcast("think", msg=f"move {move_n}: ride skipped ({err or 'audition failed'}), "
+                                       "letting the record speak", iteration=move_n)
+                STOP.wait(hold / 2)
                 continue
-            code, mc, metrics = candidate
-            prev_metrics = metrics
+            code = set_layers(rec["code"], set(active), riser=riser)
             recent.append(f"[{kind}] {mc}")
             broadcast("adjust", msg=f"🎧 {mc}", iteration=move_n, code=code, mode="inplace")
-            broadcast("measure", msg=f"move {move_n} ({kind}) on air — "
-                                     f"{metrics['bpm']}bpm-ish, {metrics['rms_db']}dB",
-                      iteration=move_n)
-            STOP.wait(hold)  # interruptible hold
-    broadcast("done", msg=f"set over — {song_n} songs, {move_n} moves. "
+            STOP.wait(hold)
+    broadcast("done", msg=f"set over — {song_n} records, {move_n} moves. "
                           "Thank you and goodnight 🙏", code=code or "", mode="inplace")
     if code:
         (HERE / "work" / "last-set-final.strudel").write_text(code)
