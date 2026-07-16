@@ -152,6 +152,7 @@
       $('code').textContent = e.code;
       if (audioOn) {
         if (first) { deck(live).play(e.code).then(() => deck(live).fadeTo(1, 1500)); $('p-deck').textContent = live; }
+        else if (e.mode === 'inplace') deck(live).play(e.code); // beat-aligned in-language swap (set mode)
         else crossfadeTo(e.code);
       }
     }

@@ -180,10 +180,38 @@ def practice_session(code_path, ref, ref_start, ref_dur, max_iters):
                   code=best[0], score=best[1])
 
 
-# ---------- set mode: the brain plays an original set ----------
+# ---------- set mode: the brain crafts songs one layer at a time ----------
 DIGEST = (ROOT / "knowledge/DIGEST.md")
-MOVE_SECS = 75          # target seconds between moves (validation time counts)
-VALIDATE_SECS = 8       # quick audition render per candidate
+VALIDATE_SECS = 6       # quick audition render per candidate
+
+# The song-craft script: how the studied artists actually work — open sparse,
+# add ONE layer at a time, let the full groove ride, break it down, drop it,
+# then tear down into the next palette. (directive, hold_seconds_after_airing)
+LAYER = ("Add exactly ONE new layer from your plan — the next one in line. "
+         "Keep every existing line BYTE-IDENTICAL; only append the new layer.")
+RIDE = ("The groove rides. Make ONE subtle performance tweak only — nudge a filter, "
+        "vary one pattern's velocity/notes slightly, or swap one drum variant. "
+        "Everything else stays byte-identical. Do NOT add or remove layers.")
+SONG_SCRIPT = [
+    ("open", "Open the new song: ONLY the first element from your plan — the kick "
+             "(or kick+bass if minimal). Include setcps for your planned tempo. "
+             "Nothing else yet. This is a fresh palette: new key, new sounds.", 35),
+    ("layer", LAYER, 40),
+    ("layer", LAYER, 40),
+    ("layer", LAYER, 45),
+    ("layer", "Add the final layer(s) from your plan — the track is now FULL.", 55),
+    ("ride", RIDE, 100),
+    ("breakdown", "Breakdown: mute the kick (prefix its line `_$:`), let the melodic "
+                  "layers breathe, and add a riser (`$: s(\"pulse\").seg(16).dec(.1)"
+                  ".fm(time).fmh(time).gain(.4)`). Keep other lines byte-identical.", 40),
+    ("drop", "THE DROP: kick back in (remove the `_`), riser line deleted, everything "
+             "at full energy — open the filters wider than before.", 100),
+    ("ride", RIDE, 80),
+    ("teardown", "Transition out: delete the melodic layers one won't be missed — "
+                 "strip down to a lean drum skeleton (kick + one hat, or a lone "
+                 "offbeat hat). Keep it groovy; never dead air. Next move starts a "
+                 "brand-new song over this skeleton.", 25),
+]
 
 
 def render_only(code, tag):
@@ -205,109 +233,153 @@ def render_only(code, tag):
     return json.loads(a.stdout)["a"], None
 
 
-def phase_for(elapsed, total):
-    k = elapsed / total
-    if k < .12: return "intro — start sparse (kick, or kick+bass), leave headroom"
-    if k < .35: return "build — layer one element in, raise energy a notch"
-    if k < .5: return "peak — full groove, maximum filter aggression"
-    if k < .62: return "breakdown — mute the kick, pads/riser carry it, tease the return"
-    if k < .85: return "second peak — drop the kick back, everything in, biggest moment"
-    return "outro — strip layers one per move, end on bass or kick alone"
-
-
-def brain_move(genre, phase, code, history, feedback):
+def ask_brain(prompt, timeout=240):
     if not shutil.which("claude"):
-        return None, None, "claude CLI not found"
+        return None, "claude CLI not found"
     env = {k: v for k, v in os.environ.items()
            if k not in SCRUB and not k.startswith("CLAUDE_CODE_")}
+    try:
+        r = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True,
+                           timeout=timeout, env=env, cwd=str(HERE / "work"))
+    except subprocess.TimeoutExpired:
+        return None, "brain timed out"
+    if r.returncode != 0:
+        return None, f"brain error: {(r.stderr or r.stdout)[-200:]}"
+    return r.stdout.strip(), None
+
+
+def brain_song_plan(genre, song_n, prev_plans):
     digest = DIGEST.read_text() if DIGEST.exists() else ""
-    prompt = f"""You are a livecoding DJ playing an original {genre} set in Strudel, live, right now.
+    out, err = ask_brain(f"""You are a livecoding DJ planning song #{song_n} of an original {genre} set in Strudel.
 
 {digest}
 
-SET STATE — phase: {phase}
-Moves so far (oldest first): {json.dumps(history[-6:], indent=0)}
-Currently playing:
+Previous songs in this set (avoid repeating their palettes/keys):
+{chr(10).join(prev_plans) if prev_plans else '(none — this is the opener)'}
+
+Write a SONG PLAN, max 10 lines of plain text: a name; the BPM; the key/scale;
+the palette (which whitelisted sounds you'll use for kick/bass/hats/melodic/texture);
+and the layer order you'll build in (first layer -> last). Make it a DIFFERENT
+palette and key than the previous songs. No code yet. Reply with only the plan.""",
+                         timeout=120)
+    return (out[:1200], None) if out else (None, err)
+
+
+def brain_craft_move(genre, plan, directive, code, feedback, recent):
+    digest = DIGEST.read_text() if DIGEST.exists() else ""
+    out, err = ask_brain(f"""You are a livecoding DJ mid-set, crafting an original {genre} song in Strudel, live. An audience is listening RIGHT NOW to the program below — your edit swaps in beat-aligned.
+
+{digest}
+
+YOUR SONG PLAN:
+{plan}
+
+Recent moves: {json.dumps(recent[-4:], indent=0)}
+
+THE PROGRAM PLAYING RIGHT NOW:
 ```
-{code if code else '(nothing yet — this is your opening move)'}
+{code if code else '(silence — nothing playing yet)'}
 ```
+
+YOUR DIRECTIVE FOR THIS MOVE (do exactly this, nothing more):
+{directive}
 {feedback}
 
-Make ONE DJ move: evolve the current program (add/remove/mutate a layer or two,
-tweak filters/energy) to fit the phase. Stay in genre and tempo; keep it groovy,
-not busy. Respect every hard rule in the digest. Reply with exactly two parts
-separated by a line containing only ---:
-1. One short sentence, MC-style, telling the crowd what you're doing.
-2. The COMPLETE new Strudel program (the whole track, all layers), no fences."""
-    try:
-        r = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True,
-                           timeout=240, env=env, cwd=str(HERE / "work"))
-    except subprocess.TimeoutExpired:
-        return None, None, "brain timed out"
-    if r.returncode != 0:
-        return None, None, f"brain error: {(r.stderr or r.stdout)[-200:]}"
-    out = r.stdout.strip()
+Respect every hard rule in the digest. Reply with exactly two parts separated by
+a line containing only ---:
+1. One short sentence, MC-style, telling the crowd what you just did.
+2. The COMPLETE new Strudel program, no fences.""")
+    if out is None:
+        return None, None, err
     if "---" not in out:
         return None, None, f"unparseable reply: {out[:150]}"
     mc, _, new_code = out.partition("---")
     new_code = new_code.strip().strip("`")
     if new_code.startswith("js\n"):
         new_code = new_code[3:]
-    if len(new_code) < 30:
+    if len(new_code) < 20:
         return None, None, "no code in reply"
     return new_code, mc.strip(), None
+
+
+def band_change(a, b):
+    """How audibly different two renders are (sum of abs band-share deltas)."""
+    if not a or not b:
+        return 1.0
+    return sum(abs(a["bands"][k] - b["bands"][k]) for k in a["bands"])
 
 
 def set_session(genre, minutes):
     total = minutes * 60
     t0 = time.time()
-    code, history, move_n = None, [], 0
-    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. The AI is on the decks.")
+    code, move_n, song_n = None, 0, 0
+    prev_plans, recent = [], []
+    prev_metrics = None
+    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. "
+                             "Song-craft loop: build a track layer by layer, ride it, "
+                             "break it down, then a fresh palette. The AI is on the decks.")
     while time.time() - t0 < total:
-        move_n += 1
-        phase = phase_for(time.time() - t0, total)
-        broadcast("think", msg=f"move {move_n}: composing ({phase.split(' — ')[0]})...", iteration=move_n)
-        feedback = ""
-        candidate = None
-        for attempt in range(3):
-            new_code, mc, err = brain_move(genre, phase, code, history, feedback)
-            if new_code is None:
-                broadcast("error", msg=f"move {move_n}: {err}", iteration=move_n)
+        song_n += 1
+        broadcast("think", msg=f"song {song_n}: sketching a new palette...")
+        plan, err = brain_song_plan(genre, song_n, prev_plans)
+        if plan is None:
+            broadcast("error", msg=f"song plan failed: {err}")
+            break
+        prev_plans.append(f"Song {song_n}: " + plan.splitlines()[0])
+        broadcast("session", msg=f"🎼 song {song_n} plan:\n{plan}")
+        for kind, directive, hold in SONG_SCRIPT:
+            if time.time() - t0 >= total:
                 break
-            metrics, verr = render_only(new_code, f"set{move_n}")
-            if verr:
-                feedback = f"Your previous attempt FAILED validation: {verr}. Fix it."
-                broadcast("think", msg=f"move {move_n}: candidate failed audition "
-                                       f"({verr[:80]}), retrying...", iteration=move_n)
-                continue
-            if metrics.get("rms_db", -99) < -35:
-                feedback = ("Your previous attempt rendered near-silence "
-                            f"({metrics.get('rms_db')}dB RMS). Check labels ($:) and gains.")
-                broadcast("think", msg=f"move {move_n}: candidate was silent, retrying...",
+            # not enough time left for a full craft arc? jump straight to teardown
+            if kind == "open" and total - (time.time() - t0) < 150 and code:
+                break
+            move_n += 1
+            broadcast("think", msg=f"move {move_n} ({kind}): composing...", iteration=move_n)
+            feedback, candidate = "", None
+            for attempt in range(3):
+                new_code, mc, err = brain_craft_move(genre, plan, directive, code,
+                                                     feedback, recent)
+                if new_code is None:
+                    broadcast("error", msg=f"move {move_n}: {err}", iteration=move_n)
+                    break
+                metrics, verr = render_only(new_code, f"set{move_n}")
+                if verr:
+                    feedback = f"\nYour previous attempt FAILED validation: {verr}. Fix it."
+                    broadcast("think", msg=f"move {move_n}: failed audition "
+                                           f"({verr[:80]}), retrying...", iteration=move_n)
+                    continue
+                if metrics.get("rms_db", -99) < -35:
+                    feedback = ("\nYour previous attempt rendered near-silence "
+                                f"({metrics.get('rms_db')}dB). Check $: labels and gains.")
+                    broadcast("think", msg=f"move {move_n}: silent, retrying...",
+                              iteration=move_n)
+                    continue
+                if kind in ("open", "layer", "breakdown", "drop", "teardown") and \
+                        band_change(metrics, prev_metrics) < 0.02:
+                    feedback = ("\nYour previous attempt made NO audible difference to "
+                                "the mix. Make the directive's change actually count.")
+                    broadcast("think", msg=f"move {move_n}: inaudible change, retrying...",
+                              iteration=move_n)
+                    continue
+                candidate = (new_code, mc, metrics)
+                break
+            if candidate is None:
+                if code is None:
+                    broadcast("error", msg="couldn't open the set; aborting")
+                    return
+                broadcast("think", msg=f"move {move_n}: keeping the groove as-is",
                           iteration=move_n)
                 continue
-            candidate = (new_code, mc, metrics)
-            break
-        if candidate is None:
-            if code is None:
-                broadcast("error", msg="couldn't produce an opening move; set aborted")
-                return
-            broadcast("think", msg=f"move {move_n}: keeping the current groove running",
-                      iteration=move_n)
-        else:
             code, mc, metrics = candidate
-            history.append(mc)
-            broadcast("adjust", msg=f"🎧 {mc}", iteration=move_n, code=code,
-                      comparison=None, score=None)
-            broadcast("measure", msg=f"move {move_n} on air — {metrics['bpm']}bpm-ish, "
-                                     f"{metrics['rms_db']}dB, centroid {metrics['centroid_hz']}Hz",
+            prev_metrics = metrics
+            recent.append(f"[{kind}] {mc}")
+            broadcast("adjust", msg=f"🎧 {mc}", iteration=move_n, code=code, mode="inplace")
+            broadcast("measure", msg=f"move {move_n} ({kind}) on air — "
+                                     f"{metrics['bpm']}bpm-ish, {metrics['rms_db']}dB",
                       iteration=move_n)
-        # hold the groove until the next move slot
-        elapsed_this = 0  # brain+validation already burned real time; top up to MOVE_SECS
-        remaining = MOVE_SECS - (time.time() - t0) % MOVE_SECS
-        time.sleep(max(10, min(remaining, MOVE_SECS)))
-    broadcast("done", msg=f"set over — {move_n} moves, thank you and goodnight 🙏",
-              code=code or "")
+            time.sleep(hold)
+    broadcast("done", msg=f"set over — {song_n} songs, {move_n} moves. "
+                          "Thank you and goodnight 🙏", code=code or "", mode="inplace")
     if code:
         (HERE / "work" / "last-set-final.strudel").write_text(code)
 
