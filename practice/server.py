@@ -100,9 +100,12 @@ Session notes: {goal_note}
 Adjust ONLY mix/filter/gain-ish parameters (lpf, hpf, postgain, gain, decay, lpenv, lpq, shape, velocity ranges) to shrink the deltas: negative band delta = that band is too quiet in mine; negative centroid = mine is too dark. Do not restructure patterns or change the tempo. Reply with exactly two parts separated by a line containing only ---:
 1. One sentence saying what you changed and why (plain language, for a listener watching the rehearsal).
 2. The COMPLETE adjusted Strudel code, no fences, no commentary."""
+    if os.environ.get("DJ_BRAIN_CONFIG_DIR"):
+        env["CLAUDE_CONFIG_DIR"] = os.environ["DJ_BRAIN_CONFIG_DIR"]
     try:
+        # trusted-workspace cwd — see ask_brain
         r = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True,
-                           timeout=180, env=env, cwd=str(HERE / "work"))
+                           timeout=180, env=env, cwd=os.environ.get("HOME", "/"))
     except subprocess.TimeoutExpired:
         return None, "brain timed out"
     if r.returncode != 0:
@@ -242,8 +245,10 @@ def ask_brain(prompt, timeout=240):
     if os.environ.get("DJ_BRAIN_CONFIG_DIR"):
         env["CLAUDE_CONFIG_DIR"] = os.environ["DJ_BRAIN_CONFIG_DIR"]
     try:
+        # cwd MUST be a trusted workspace: claude -p stalls on the trust gate in
+        # untrusted dirs (practice/work froze every brain call under the daemon).
         r = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True,
-                           timeout=timeout, env=env, cwd=str(HERE / "work"))
+                           timeout=timeout, env=env, cwd=os.environ.get("HOME", "/"))
     except subprocess.TimeoutExpired:
         return None, "brain timed out"
     if r.returncode != 0:
