@@ -145,6 +145,9 @@ def practice_session(code_path, ref, ref_start, ref_dur, max_iters):
                              f"@{ref_start}s+{ref_dur}s, {max_iters} iterations max",
               code=code, iteration=0)
     for i in range(1, max_iters + 1):
+        if STOP.is_set():
+            broadcast("done", msg="rehearsal stopped from the booth")
+            break
         broadcast("render", msg=f"iteration {i}: rendering {RENDER_SECS}s headless...", iteration=i)
         comparison, err = render_and_measure(code, ref, ref_start, ref_dur, f"iter{i}")
         if err:
@@ -326,7 +329,7 @@ def set_session(genre, minutes):
     broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. "
                              "Song-craft loop: build a track layer by layer, ride it, "
                              "break it down, then a fresh palette. The AI is on the decks.")
-    while time.time() - t0 < total:
+    while time.time() - t0 < total and not STOP.is_set():
         song_n += 1
         broadcast("think", msg=f"song {song_n}: sketching a new palette...")
         plan = err = None
@@ -341,7 +344,7 @@ def set_session(genre, minutes):
         prev_plans.append(f"Song {song_n}: " + plan.splitlines()[0])
         broadcast("session", msg=f"🎼 song {song_n} plan:\n{plan}")
         for kind, directive, hold in SONG_SCRIPT:
-            if time.time() - t0 >= total:
+            if time.time() - t0 >= total or STOP.is_set():
                 break
             # not enough time left for a full craft arc? jump straight to teardown
             if kind == "open" and total - (time.time() - t0) < 150 and code:
@@ -390,7 +393,7 @@ def set_session(genre, minutes):
             broadcast("measure", msg=f"move {move_n} ({kind}) on air — "
                                      f"{metrics['bpm']}bpm-ish, {metrics['rms_db']}dB",
                       iteration=move_n)
-            time.sleep(hold)
+            STOP.wait(hold)  # interruptible hold
     broadcast("done", msg=f"set over — {song_n} songs, {move_n} moves. "
                           "Thank you and goodnight 🙏", code=code or "", mode="inplace")
     if code:
@@ -399,11 +402,13 @@ def set_session(genre, minutes):
 
 # ---------- session runner (one at a time, startable over HTTP) ----------
 SESSION_BUSY = threading.Lock()
+STOP = threading.Event()  # POST /stop -> current session winds down after its move
 
 
 def start_set(genre, minutes):
     if not SESSION_BUSY.acquire(blocking=False):
         return False
+    STOP.clear()
 
     def go():
         try:
@@ -420,6 +425,7 @@ def start_set(genre, minutes):
 def start_session(code_path, ref, ref_start, ref_dur, iters):
     if not SESSION_BUSY.acquire(blocking=False):
         return False
+    STOP.clear()
 
     def go():
         try:
@@ -460,6 +466,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/stop":
+            if SESSION_BUSY.locked():
+                STOP.set()
+                broadcast("session", msg="🛑 stop requested — winding down after the current move")
+                self._json({"ok": True})
+            else:
+                self._json({"ok": True, "note": "nothing running"})
+            return
         if self.path == "/set":
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))))
