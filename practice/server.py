@@ -15,6 +15,7 @@ Pure stdlib. Shells out to sandbox/render.mjs + sandbox/analyze.py.
 """
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -193,30 +194,33 @@ VALIDATE_SECS = 6       # quick audition render per candidate
 # The song-craft script: how the studied artists actually work — open sparse,
 # add ONE layer at a time, let the full groove ride, break it down, drop it,
 # then tear down into the next palette. (directive, hold_seconds_after_airing)
-LAYER = ("Add exactly ONE new layer from your plan — the next one in line. "
-         "Keep every existing line BYTE-IDENTICAL; only append the new layer.")
-RIDE = ("The groove rides. Make ONE subtle performance tweak only — nudge a filter, "
-        "vary one pattern's velocity/notes slightly, or swap one drum variant. "
+LAYER = ("Unmute the NEXT layer from your plan (remove its `_` prefix). Every other "
+         "line stays BYTE-IDENTICAL.")
+RIDE = ("The record rides. Make ONE subtle performance tweak in the spirit of the "
+        "record — nudge a filter, vary one pattern slightly, swap one drum variant. "
         "Everything else stays byte-identical. Do NOT add or remove layers.")
 SONG_SCRIPT = [
-    ("open", "Open the new song: ONLY the first element from your plan — the kick "
-             "(or kick+bass if minimal). Include setcps for your planned tempo. "
-             "Nothing else yet. This is a fresh palette: new key, new sounds.", 35),
+    ("open", "Restructure the record into the 808-set performance form: one `$name:`-"
+             "labeled line per layer, each layer's chain VERBATIM from the record "
+             "(hoist any const/let definitions and setcps/samples() calls to the top, "
+             "unchanged; a stack() becomes one labeled line per member). Then mute "
+             "every layer EXCEPT the foundation (kick or core groove) by prefixing "
+             "`_` (`_$name:`). The whole record must be present in the program, "
+             "mostly muted. Only the foundation plays.", 35),
     ("layer", LAYER, 40),
     ("layer", LAYER, 40),
     ("layer", LAYER, 45),
-    ("layer", "Add the final layer(s) from your plan — the track is now FULL.", 55),
+    ("layer", "Unmute EVERYTHING that remains — the full record now plays.", 55),
     ("ride", RIDE, 100),
-    ("breakdown", "Breakdown: mute the kick (prefix its line `_$:`), let the melodic "
-                  "layers breathe, and add a riser (`$: s(\"pulse\").seg(16).dec(.1)"
-                  ".fm(time).fmh(time).gain(.4)`). Keep other lines byte-identical.", 40),
-    ("drop", "THE DROP: kick back in (remove the `_`), riser line deleted, everything "
-             "at full energy — open the filters wider than before.", 100),
+    ("breakdown", "Breakdown: mute the kick/foundation (`_$name:`), let the melodic "
+                  "layers breathe, and add a riser line (`$riser: s(\"pulse\").seg(16)"
+                  ".dec(.1).fm(time).fmh(time).gain(.4)`). Other lines byte-identical.", 40),
+    ("drop", "THE DROP: unmute the kick, delete the riser line, everything at full "
+             "energy — open a filter wider than the record's resting state.", 100),
     ("ride", RIDE, 80),
-    ("teardown", "Transition out: delete the melodic layers one won't be missed — "
-                 "strip down to a lean drum skeleton (kick + one hat, or a lone "
-                 "offbeat hat). Keep it groovy; never dead air. Next move starts a "
-                 "brand-new song over this skeleton.", 25),
+    ("teardown", "Transition out: mute all melodic layers — leave a lean drum skeleton "
+                 "(kick + one hat, or a lone offbeat hat). Keep it groovy; never dead "
+                 "air. The next move opens a different record over this skeleton.", 25),
 ]
 
 
@@ -259,37 +263,61 @@ def ask_brain(prompt, timeout=240):
     return r.stdout.strip(), None
 
 
-def brain_song_plan(genre, song_n, prev_plans):
-    digest = DIGEST.read_text() if DIGEST.exists() else ""
-    out, err = ask_brain(f"""You are a livecoding DJ planning song #{song_n} of an original {genre} set in Strudel.
+CRATE = ROOT / "knowledge/crate"
 
-{digest}
 
-Previous songs in this set (avoid repeating their palettes/keys):
-{chr(10).join(prev_plans) if prev_plans else '(none — this is the opener)'}
+def load_crate():
+    idx = json.loads((CRATE / "index.json").read_text())["records"]
+    for r in idx:
+        r["code"] = (CRATE / r["file"]).read_text()
+    return idx
 
-Write a SONG PLAN, max 10 lines of plain text: a name; the BPM; the key/scale;
-the palette (which whitelisted sounds you'll use for kick/bass/hats/melodic/texture);
-and the layer order you'll build in (first layer -> last). Make it a DIFFERENT
-palette and key than the previous songs. No code yet. Reply with only the plan.""",
+
+def pick_record(records, genre, played):
+    words = set(re.findall(r"[a-z]+", genre.lower()))
+    fresh = [r for r in records if r["file"] not in played] or records
+    scored = sorted(fresh, key=lambda r: -len(words & set(r["genres"])))
+    top = len(words & set(scored[0]["genres"]))
+    pool = [r for r in scored if len(words & set(r["genres"])) == top]
+    import random
+    return random.choice(pool)
+
+
+def brain_record_plan(record):
+    out, err = ask_brain(f"""You are a livecoding DJ about to perform this record live in Strudel:
+
+RECORD: "{record['title']}" (~{record['bpm']} bpm)
+```
+{record['code']}
+```
+
+Write a PERFORMANCE PLAN, max 8 lines of plain text: name each distinct layer of
+the record by its musical role (foundation kick/drums, bass, hats, chords, melody,
+texture...) with a short identifying code snippet, in the ORDER you will bring
+them in (foundation first). No code changes yet. Reply with only the plan.""",
                          timeout=300)
-    return (out[:1200], None) if out else (None, err)
+    return (out[:1500], None) if out else (None, err)
 
 
-def brain_craft_move(genre, plan, directive, code, feedback, recent):
+def brain_craft_move(genre, record, plan, directive, code, feedback, recent):
     digest = DIGEST.read_text() if DIGEST.exists() else ""
-    out, err = ask_brain(f"""You are a livecoding DJ mid-set, crafting an original {genre} song in Strudel, live. An audience is listening RIGHT NOW to the program below — your edit swaps in beat-aligned.
+    out, err = ask_brain(f"""You are a livecoding DJ mid-set, performing a known record live in Strudel — the 808-set style: the whole record lives in your program as labeled layers, and you perform by muting/unmuting and riding parameters. An audience is listening RIGHT NOW; your edit swaps in beat-aligned.
 
 {digest}
 
-YOUR SONG PLAN:
+THE RECORD you are performing — "{record['title']}" — its original code (your ground truth; keep layer code verbatim unless a directive says otherwise):
+```
+{record['code']}
+```
+
+YOUR PERFORMANCE PLAN (layer order):
 {plan}
 
 Recent moves: {json.dumps(recent[-4:], indent=0)}
 
 THE PROGRAM PLAYING RIGHT NOW:
 ```
-{code if code else '(silence — nothing playing yet)'}
+{code if code else '(a lean drum skeleton from the previous record, or silence at set open)'}
 ```
 
 YOUR DIRECTIVE FOR THIS MOVE (do exactly this, nothing more):
@@ -324,25 +352,28 @@ def set_session(genre, minutes):
     total = minutes * 60
     t0 = time.time()
     code, move_n, song_n = None, 0, 0
-    prev_plans, recent = [], []
+    recent, played = [], []
     prev_metrics = None
-    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. "
-                             "Song-craft loop: build a track layer by layer, ride it, "
-                             "break it down, then a fresh palette. The AI is on the decks.")
+    records = load_crate()
+    broadcast("session", msg=f"SET MODE: {genre}, {minutes} minutes. Performing from "
+                             f"the record crate ({len(records)} records): build each "
+                             "record layer by layer, ride it, break it, drop it, then "
+                             "the next record. The AI is on the decks.")
     while time.time() - t0 < total and not STOP.is_set():
         song_n += 1
-        broadcast("think", msg=f"song {song_n}: sketching a new palette...")
+        record = pick_record(records, genre, played)
+        played.append(record["file"])
+        broadcast("think", msg=f"song {song_n}: pulling \"{record['title']}\" from the crate...")
         plan = err = None
         for _ in range(2):  # a slow/failed brain call shouldn't end the night
-            plan, err = brain_song_plan(genre, song_n, prev_plans)
+            plan, err = brain_record_plan(record)
             if plan:
                 break
-            broadcast("think", msg=f"song plan attempt failed ({err}), retrying...")
+            broadcast("think", msg=f"performance plan attempt failed ({err}), retrying...")
         if plan is None:
-            broadcast("error", msg=f"song plan failed twice: {err}")
+            broadcast("error", msg=f"performance plan failed twice: {err}")
             break
-        prev_plans.append(f"Song {song_n}: " + plan.splitlines()[0])
-        broadcast("session", msg=f"🎼 song {song_n} plan:\n{plan}")
+        broadcast("session", msg=f"🎼 song {song_n}: \"{record['title']}\" — performance plan:\n{plan}")
         for kind, directive, hold in SONG_SCRIPT:
             if time.time() - t0 >= total or STOP.is_set():
                 break
@@ -353,8 +384,8 @@ def set_session(genre, minutes):
             broadcast("think", msg=f"move {move_n} ({kind}): composing...", iteration=move_n)
             feedback, candidate = "", None
             for attempt in range(3):
-                new_code, mc, err = brain_craft_move(genre, plan, directive, code,
-                                                     feedback, recent)
+                new_code, mc, err = brain_craft_move(genre, record, plan, directive,
+                                                     code, feedback, recent)
                 if new_code is None:
                     broadcast("error", msg=f"move {move_n}: {err}", iteration=move_n)
                     break

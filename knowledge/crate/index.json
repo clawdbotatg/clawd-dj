@@ -1,0 +1,18 @@
+{
+  "records": [
+    {"file": "01-acidic-tooth.strudel", "title": "acidic tooth (eddyflux)", "genres": ["acid", "techno"], "bpm": 120},
+    {"file": "02-flatrave.strudel", "title": "Flatrave (Felix Roos)", "genres": ["techno", "rave", "hard"], "bpm": 125},
+    {"file": "03-coastline.strudel", "title": "coastline (eddyflux)", "genres": ["house", "deep", "melodic", "chill"], "bpm": 90},
+    {"file": "04-caverave.strudel", "title": "Caverave (Felix Roos)", "genres": ["techno", "rave", "house", "dark"], "bpm": 120},
+    {"file": "05-amensister.strudel", "title": "Amensister (Felix Roos)", "genres": ["jungle", "dnb", "drum", "bass", "breaks"], "bpm": 170},
+    {"file": "06-broken-cut-1.strudel", "title": "broken cut 1 (froos)", "genres": ["breaks", "jungle", "dnb"], "bpm": 150},
+    {"file": "07-minimal-amen-chop.strudel", "title": "amen chop (Strudel recipes)", "genres": ["jungle", "breaks", "dnb"], "bpm": 165},
+    {"file": "08-lofi-hip-hop-full-track.strudel", "title": "lofi beat (CodingWCal)", "genres": ["lofi", "hip-hop", "hiphop", "chill"], "bpm": 94},
+    {"file": "09-holy-flute.strudel", "title": "Holy flute (Felix Roos)", "genres": ["ambient", "beatless"], "bpm": 60},
+    {"file": "10-random-bells.strudel", "title": "Random bells (Felix Roos)", "genres": ["ambient", "beatless"], "bpm": 50},
+    {"file": "11-melting-submarine.strudel", "title": "Melting submarine (Felix Roos)", "genres": ["breaks", "electro", "funk"], "bpm": 105},
+    {"file": "12-dembow-latin-pop-groove.strudel", "title": "dembow groove (Strudel workshop)", "genres": ["latin", "dembow", "pop"], "bpm": 100},
+    {"file": "13-switchangel-deep-acid.strudel", "title": "deep acid (after Switch Angel)", "genres": ["acid", "techno"], "bpm": 140},
+    {"file": "14-aviara-hard-groove.strudel", "title": "hard groove (after Aviara)", "genres": ["hard", "techno", "groove"], "bpm": 150}
+  ]
+}

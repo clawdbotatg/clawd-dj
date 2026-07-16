@@ -1,0 +1,16 @@
+// "Holy flute" — ambient/pastoral drone · Felix Roos (CC BY-NC-SA 4.0) · beatless
+// "Holy flute"
+// @license CC BY-NC-SA 4.0 https://creativecommons.org/licenses/by-nc-sa/4.0/
+// @by Felix Roos
+
+useRNG('legacy')
+
+"c3 eb3(3,8) c4/2 g3*2"
+.superimpose(
+  x=>x.slow(2).add(12),
+  x=>x.slow(4).sub(5)
+).add("<0 1>/16")
+.note().s('triangle').lpf(1400).clip(1)
+.release(.1).room(1).gain(.2)
+.color("salmon | orange | darkseagreen")
+

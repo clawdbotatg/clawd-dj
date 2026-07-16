@@ -1,0 +1,47 @@
+// Reproduction of knowledge/lessons/aviara-hard-groove-techno.md at the
+// full-groove section (9:12-9:48): main_bass (euclid rewrite) + both kicks +
+// hats + boogie_woogie; toms out. Sliders -> ridden values from the timeline,
+// _scope() stripped, outro-only .fm(time) excluded. tidal-drum-machines added
+// for .bank("tr808") (strudel.cc prebakes it; @strudel/web does not).
+setCps(150/60/4)
+samples('github:tidalcycles/dirt-samples')
+samples('https://strudel.b-cdn.net/tidal-drum-machines.json')
+
+let main_bass =
+  note("e1(5,8)")
+  .sound("supersaw")
+  .sustain(0.3)
+  .release(0.1)
+  .shape(0.3)
+  .lpf(perlin.range(200, 1000).slow(4))
+  .lpq(8.8)
+  .lpenv(4)
+  .room(.1)
+  .jux(rev)
+  .postgain(1)
+
+let sub_kick = s("bd:3!4").bank("tr808")
+  .shape(.6)
+  .sustain(.8)
+  .hpf(80)
+  .postgain(1)
+
+let main_kick = s("<[sbd!3 [sbd sbd]] [sbd!2 [sbd sbd] sbd]>").lpf(742)
+
+let hats = s("white!8").decay(.07).lpf(2000).delay(.2)
+  .sometimesBy(".3", x=>x.s("oh | hh"))
+  .velocity(perlin.range(.5, 1.7))
+
+let boogie_woogie = s("hh:1 * 8, oh:4 * 4").decay(.05)
+  .delay(.2)
+  .speed(perlin.range(1, 2).slow(8))
+  .velocity(perlin.range(.5, 1.5)).postgain(1)
+  .lpf(1500)
+
+track: stack(
+  main_bass,
+  sub_kick,
+  main_kick,
+  hats,
+  boogie_woogie
+)
