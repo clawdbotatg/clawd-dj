@@ -50,8 +50,20 @@
   <button id="c-go">start session</button>
   <span style="border-left:1px solid #2a333e;height:22px"></span>
   <span>🎧 set</span>
-  <input type="text" id="s-genre" value="techno" style="width:110px;background:#161b22;color:#d7dde4;border:1px solid #2a333e;border-radius:6px;padding:6px 8px;font:inherit;font-size:12px">
-  <input type="number" id="s-mins" value="15">min
+  <select id="s-genre">
+    <option value="__random__">🎲 surprise me</option>
+    <option value="melodic house, warm and rolling" selected>Melodic house</option>
+    <option value="deep house, smoky and laid back">Deep house</option>
+    <option value="acid techno with a squelchy resonant bassline, around 140bpm">Acid techno</option>
+    <option value="hard groove techno, dark and driving, around 150bpm">Hard techno</option>
+    <option value="uplifting trance with big supersaw pads, around 140bpm">Trance</option>
+    <option value="melodic drum &amp; bass, fast breaks with a warm bassline, around 170bpm">Drum &amp; bass</option>
+    <option value="jungle built on chopped amen breaks, around 165bpm">Jungle / breaks</option>
+    <option value="lofi hip-hop, dusty, swung and mellow, around 90bpm">Lofi hip-hop</option>
+    <option value="dembow / latin-pop groove, playful, around 100bpm">Latin groove</option>
+    <option value="ambient — beatless, slowly evolving warm textures">Ambient</option>
+  </select>
+  <input type="number" id="s-mins" value="25">min
   <button id="s-go">play a set</button>
   <button id="s-stop" title="wind down the running session">stop</button>
   <span style="margin-left:auto">crossfade <input type="range" id="xfade" min="0" max="12" step="1" value="4"> <b id="xfade-v">4</b>s</span>
@@ -121,7 +133,12 @@
     $('p-status').textContent = r.ok ? 'session starting…' : `busy (${r.status})`;
   };
   $('s-go').onclick = async () => {
-    const body = { genre: $('s-genre').value, minutes: +$('s-mins').value };
+    let genre = $('s-genre').value;
+    if (genre === '__random__') {
+      const opts = [...$('s-genre').options].map((o) => o.value).filter((v) => v !== '__random__');
+      genre = opts[Math.floor(Math.random() * opts.length)];
+    }
+    const body = { genre, minutes: +$('s-mins').value };
     const r = await fetch('/set', { method: 'POST', body: JSON.stringify(body) });
     $('p-status').textContent = r.ok ? 'set starting…' : `busy (${r.status})`;
   };
