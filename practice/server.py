@@ -261,7 +261,7 @@ Write a SONG PLAN, max 10 lines of plain text: a name; the BPM; the key/scale;
 the palette (which whitelisted sounds you'll use for kick/bass/hats/melodic/texture);
 and the layer order you'll build in (first layer -> last). Make it a DIFFERENT
 palette and key than the previous songs. No code yet. Reply with only the plan.""",
-                         timeout=120)
+                         timeout=300)
     return (out[:1200], None) if out else (None, err)
 
 
@@ -321,9 +321,14 @@ def set_session(genre, minutes):
     while time.time() - t0 < total:
         song_n += 1
         broadcast("think", msg=f"song {song_n}: sketching a new palette...")
-        plan, err = brain_song_plan(genre, song_n, prev_plans)
+        plan = err = None
+        for _ in range(2):  # a slow/failed brain call shouldn't end the night
+            plan, err = brain_song_plan(genre, song_n, prev_plans)
+            if plan:
+                break
+            broadcast("think", msg=f"song plan attempt failed ({err}), retrying...")
         if plan is None:
-            broadcast("error", msg=f"song plan failed: {err}")
+            broadcast("error", msg=f"song plan failed twice: {err}")
             break
         prev_plans.append(f"Song {song_n}: " + plan.splitlines()[0])
         broadcast("session", msg=f"🎼 song {song_n} plan:\n{plan}")
