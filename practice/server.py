@@ -238,6 +238,9 @@ def ask_brain(prompt, timeout=240):
         return None, "claude CLI not found"
     env = {k: v for k, v in os.environ.items()
            if k not in SCRUB and not k.startswith("CLAUDE_CODE_")}
+    # brain calls can ride a different (cooler) subscription pool than the harness
+    if os.environ.get("DJ_BRAIN_CONFIG_DIR"):
+        env["CLAUDE_CONFIG_DIR"] = os.environ["DJ_BRAIN_CONFIG_DIR"]
     try:
         r = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True,
                            timeout=timeout, env=env, cwd=str(HERE / "work"))
